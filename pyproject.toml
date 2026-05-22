@@ -9,6 +9,8 @@ description = "AI-powered quantitative research platform — market regime detec
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
+# Core: everything the API/dashboard imports at startup. Notably PyTorch-free —
+# the GNN's torch model and the forecaster/RL agent load lazily or live in [ml].
 dependencies = [
     "numpy>=1.26",
     "pandas>=2.1",
@@ -20,17 +22,21 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
     "joblib>=1.3",
+    "networkx>=3.0",        # correlation graphs (Phase 4 build helpers)
+    "langgraph>=0.2",       # multi-agent orchestration (Phase 8)
+    "qdrant-client>=1.9",   # vector retrieval (Phase 7)
 ]
 
 [project.optional-dependencies]
-# Heavy ML stack — needed by the forecaster (Phase 2), RL agent (Phase 3) and
-# GNN (Phase 4), but NOT by the API/dashboard, which stays lean.
+# Heavy training stack — forecaster (Phase 2), RL agent (Phase 3), GNN training
+# (Phase 4). The API does not import these, so the API image stays torch-free.
 ml = [
     "torch>=2.2",
     "gymnasium>=0.29",
     "stable-baselines3>=2.3",
-    "networkx>=3.0",
 ]
+# Optional Kafka backend for streaming (Phase 9); the in-memory bus needs nothing.
+streaming = ["kafka-python>=2.0"]
 # Optional Claude generation for the research copilot (Phase 5).
 llm = ["anthropic>=0.39"]
 # Optional experiment tracking (Phase 6).
@@ -41,7 +47,7 @@ dev = [
     "torch>=2.2",
     "gymnasium>=0.29",
     "stable-baselines3>=2.3",
-    "networkx>=3.0",
+    "kafka-python>=2.0",
     "anthropic>=0.39",
 ]
 

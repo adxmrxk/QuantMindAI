@@ -49,6 +49,17 @@ def test_ask_endpoint_offline(monkeypatch):
     assert len(data["answer"]) > 0
 
 
+def test_research_team_endpoint_offline(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    res = client.post("/api/research-team", json={"query": "Summarise the market.", "source": "synthetic"})
+    assert res.status_code == 200
+    data = res.json()
+    assert "Macro" in data["report"]
+    assert "current" in data["macro"]
+    assert "sharpe" in data["risk"]["strategy"]
+    assert data["relationships"]["n_nodes"] > 0
+
+
 def test_dashboard_served():
     res = client.get("/")
     assert res.status_code == 200

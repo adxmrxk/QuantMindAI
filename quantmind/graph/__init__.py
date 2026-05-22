@@ -6,7 +6,13 @@ asset's sector purely from weakly-informative node features plus the correlation
 graph, which demonstrates the model exploiting *relationships*, not just
 per-asset signals. The same machinery extends to contagion / spillover
 prediction.
+
+The graph-building helpers (numpy / networkx) import eagerly; the PyTorch GAT
+and its trainer are loaded lazily on first access, so importing this package —
+e.g. from the API for ``graph_summary`` — does not pull in PyTorch.
 """
+
+import importlib
 
 from quantmind.graph.build import (
     build_adjacency,
@@ -15,8 +21,20 @@ from quantmind.graph.build import (
     graph_summary,
     node_features,
 )
-from quantmind.graph.gat import GAT, GraphAttentionLayer
-from quantmind.graph.train import train_sector_gat
+
+# name -> module providing it (imported on demand to keep torch optional here)
+_LAZY = {
+    "GAT": "quantmind.graph.gat",
+    "GraphAttentionLayer": "quantmind.graph.gat",
+    "train_sector_gat": "quantmind.graph.train",
+}
+
+
+def __getattr__(name):  # PEP 562 module-level lazy attributes
+    if name in _LAZY:
+        return getattr(importlib.import_module(_LAZY[name]), name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "generate_multi_asset_returns",

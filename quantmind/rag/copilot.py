@@ -26,9 +26,17 @@ _SYSTEM = (
 
 
 class ResearchCopilot:
-    def __init__(self, docs=None, close: pd.Series | None = None, model: str | None = None) -> None:
+    def __init__(
+        self,
+        docs=None,
+        close: pd.Series | None = None,
+        model: str | None = None,
+        retriever=None,
+    ) -> None:
         self.docs = list(docs) if docs is not None else build_market_corpus(close)
-        self.retriever = TfidfRetriever().fit(self.docs)
+        # Any object with a ``fit(docs)`` / ``query(text, k)`` contract works
+        # (Tf-IDF by default, Qdrant vector search when injected).
+        self.retriever = (retriever or TfidfRetriever()).fit(self.docs)
         self.model = model or DEFAULT_MODEL
 
     def ask(self, query: str, k: int = 3) -> dict:

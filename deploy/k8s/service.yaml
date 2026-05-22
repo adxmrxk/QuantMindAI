@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: quantmind-api
+  labels:
+    app: quantmind-api
+spec:
+  type: ClusterIP
+  selector:
+    app: quantmind-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: quantmind-config
+data:
+  QUANTMIND_MLFLOW: "0"

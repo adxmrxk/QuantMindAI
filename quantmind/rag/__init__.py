@@ -9,6 +9,16 @@ and falls back to an extractive grounded answer offline.
 
 from quantmind.rag.copilot import ResearchCopilot
 from quantmind.rag.corpus import Document, build_market_corpus
+from quantmind.rag.embeddings import HashingEmbedder, get_embedder
+from quantmind.rag.qdrant_store import QdrantRetriever
 from quantmind.rag.retriever import TfidfRetriever
 
-__all__ = ["ResearchCopilot", "Document", "build_market_corpus", "TfidfRetriever"]
+__all__ = [
+    "ResearchCopilot",
+    "Document",
+    "build_market_corpus",
+    "TfidfRetriever",
+    "QdrantRetriever",
+    "HashingEmbedder",
+    "get_embedder",
+]

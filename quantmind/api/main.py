@@ -12,18 +12,21 @@ so the whole stack is demoable with no network access.
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 from quantmind import __version__
+from quantmind.agents import run_research_team
 from quantmind.backtest import backtest_regime_strategy
 from quantmind.data import generate_regime_series, load_prices
 from quantmind.models import analyze
 from quantmind.rag import ResearchCopilot
+from quantmind.streaming import regime_stream
 
 WEB_DIR = Path(__file__).resolve().parents[2] / "web"
 
@@ -147,7 +150,13 @@ def _cached_copilot(symbol: str, source: str) -> ResearchCopilot:
         close = generate_regime_series()["close"]
     else:
         close = load_prices(symbol, period="2y")["close"]
-    return ResearchCopilot(close=close)
+    # Swap in the Qdrant vector backend with QUANTMIND_RETRIEVER=qdrant.
+    retriever = None
+    if os.getenv("QUANTMIND_RETRIEVER", "tfidf").lower() == "qdrant":
+        from quantmind.rag import QdrantRetriever
+
+        retriever = QdrantRetriever()
+    return ResearchCopilot(close=close, retriever=retriever)
 
 
 @app.post("/api/ask")
@@ -160,6 +169,54 @@ def ask(req: AskRequest) -> JSONResponse:
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return JSONResponse(copilot.ask(req.query))
+
+
+def _close_for(symbol: str, source: str):
+    if source == "synthetic" or symbol.upper() in {"SYNTH", "DEMO"}:
+        return generate_regime_series()["close"], "synthetic"
+    return load_prices(symbol.upper(), period="2y")["close"], "auto"
+
+
+@app.post("/api/research-team")
+def research_team(req: AskRequest) -> JSONResponse:
+    """Run the multi-agent research team and return its briefing + sections."""
+    try:
+        close, _ = _close_for(req.symbol, req.source)
+        state = run_research_team(close, req.query)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return JSONResponse(
+        {
+            "report": state["report"],
+            "macro": state["macro"],
+            "risk": state["risk"],
+            "relationships": state["relationships"],
+            "research_sources": state["research"]["sources"],
+        }
+    )
+
+
+@app.websocket("/ws/regime")
+async def ws_regime(websocket: WebSocket) -> None:
+    """Stream live regime updates to the dashboard over a WebSocket."""
+    await websocket.accept()
+    p = websocket.query_params
+    symbol, source = p.get("symbol", "SPY"), p.get("source", "synthetic")
+    limit, speed = int(p.get("limit", "150")), float(p.get("speed", "0.3"))
+    try:
+        close, _ = _close_for(symbol, source)
+        async for update in regime_stream(close, limit=limit, speed=speed):
+            await websocket.send_json(update)
+        await websocket.send_json({"type": "complete"})
+    except WebSocketDisconnect:
+        return
+    except (ValueError, RuntimeError) as exc:
+        await websocket.send_json({"type": "error", "detail": str(exc)})
+    finally:
+        try:
+            await websocket.close()
+        except RuntimeError:
+            pass
 
 
 @app.get("/")
