@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>QuantMind — Quantitative Research Platform</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+  <style>
+    :root {
+      --bg: #0b0f17; --panel: #131a26; --muted: #8b97a8; --text: #e6edf6;
+      --bull: #2ecc71; --bear: #e74c3c; --neutral: #f1c40f; --accent: #5b8def;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+           background: var(--bg); color: var(--text); }
+    header { padding: 18px 24px; border-bottom: 1px solid #1e2838; display: flex;
+             align-items: baseline; gap: 12px; flex-wrap: wrap; }
+    header h1 { font-size: 18px; margin: 0; letter-spacing: .3px; }
+    header .tag { color: var(--muted); font-size: 13px; }
+    .tabs { display: flex; gap: 6px; padding: 12px 24px 0; }
+    .tab { background: transparent; border: 1px solid transparent; color: var(--muted);
+           padding: 8px 16px; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px; }
+    .tab.active { background: var(--panel); color: var(--text); border-color: #1e2838; border-bottom-color: var(--panel); }
+    .controls { display: flex; gap: 10px; align-items: center; padding: 16px 24px; flex-wrap: wrap; }
+    input, select, button {
+      background: var(--panel); color: var(--text); border: 1px solid #243047;
+      border-radius: 8px; padding: 8px 12px; font-size: 14px;
+    }
+    label.inline { color: var(--muted); font-size: 13px; }
+    button { cursor: pointer; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button:hover { filter: brightness(1.1); }
+    .layout { display: grid; grid-template-columns: 320px 1fr; gap: 16px; padding: 0 24px 24px; }
+    @media (max-width: 880px) { .layout { grid-template-columns: 1fr; } }
+    .panel { background: var(--panel); border: 1px solid #1e2838; border-radius: 12px; padding: 16px; }
+    .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px;
+                color: var(--muted); margin: 0 0 12px; }
+    .current-label { font-size: 30px; font-weight: 700; }
+    .current-meta { color: var(--muted); font-size: 13px; margin-top: 4px; }
+    .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-weight: 600; font-size: 13px; }
+    .Bull { color: var(--bull); } .Bear { color: var(--bear); } .Neutral { color: var(--neutral); }
+    .bg-Bull { background: rgba(46,204,113,.15); color: var(--bull); }
+    .bg-Bear { background: rgba(231,76,60,.15); color: var(--bear); }
+    .bg-Neutral { background: rgba(241,196,15,.15); color: var(--neutral); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    td, th { padding: 6px 4px; border-top: 1px solid #1e2838; text-align: left; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .pos { color: var(--bull); } .neg { color: var(--bear); }
+    #status { color: var(--muted); font-size: 13px; padding: 0 24px 8px; min-height: 18px; }
+    .chart { width: 100%; height: 520px; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>QuantMind</h1>
+    <span class="tag">Quantitative Research Platform</span>
+  </header>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="regime" onclick="switchTab('regime')">Regime Detection</button>
+    <button class="tab" data-tab="backtest" onclick="switchTab('backtest')">Backtest</button>
+    <button class="tab" data-tab="research" onclick="switchTab('research')">Research Copilot</button>
+  </div>
+
+  <div class="controls" id="main-controls">
+    <input id="symbol" value="SPY" placeholder="Symbol" size="8" />
+    <select id="period">
+      <option value="1y">1y</option><option value="2y" selected>2y</option>
+      <option value="5y">5y</option><option value="max">max</option>
+    </select>
+    <select id="nstates">
+      <option value="2">2 regimes</option><option value="3" selected>3 regimes</option><option value="4">4 regimes</option>
+    </select>
+    <label class="inline" id="cost-wrap">cost
+      <input id="costbps" value="1" size="3" /> bps</label>
+    <button class="primary" onclick="run('auto')">Run (live)</button>
+    <button onclick="run('synthetic')">Demo (offline)</button>
+  </div>
+
+  <div id="status"></div>
+
+  <!-- Regime tab -->
+  <div id="tab-regime" class="layout">
+    <div>
+      <div class="panel">
+        <h2>Current Regime</h2>
+        <div id="current-label" class="current-label">—</div>
+        <div id="current-meta" class="current-meta">Run an analysis to begin.</div>
+      </div>
+      <div class="panel" style="margin-top:16px;">
+        <h2>Regime Breakdown</h2>
+        <table id="stats"><tbody></tbody></table>
+      </div>
+    </div>
+    <div class="panel"><div id="regime-chart" class="chart"></div></div>
+  </div>
+
+  <!-- Backtest tab -->
+  <div id="tab-backtest" class="layout hidden">
+    <div>
+      <div class="panel">
+        <h2>Strategy vs Benchmark</h2>
+        <table id="metrics">
+          <thead><tr><th>Metric</th><th class="num">Regime</th><th class="num">Buy&amp;Hold</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel"><div id="equity-chart" class="chart"></div></div>
+  </div>
+
+  <!-- Research tab -->
+  <div id="tab-research" class="layout hidden">
+    <div class="panel">
+      <h2>Grounding Sources</h2>
+      <div id="sources" class="current-meta">Ask a question to retrieve grounding documents.</div>
+    </div>
+    <div class="panel">
+      <h2>AI Research Terminal</h2>
+      <div style="display:flex; gap:8px; margin-bottom:14px;">
+        <input id="question" placeholder="e.g. Why might the regime strategy beat buy & hold?"
+               style="flex:1;" onkeydown="if(event.key==='Enter')ask()" />
+        <button class="primary" onclick="ask()">Ask</button>
+      </div>
+      <div id="answer" style="white-space:pre-wrap; line-height:1.55;">Ask a grounded question about the market, regimes, or strategy performance.</div>
+      <div id="llm-note" class="current-meta" style="margin-top:12px;"></div>
+    </div>
+  </div>
+
+  <script>
+    const COLORS = { Bull: "#2ecc71", Bear: "#e74c3c", Neutral: "#f1c40f" };
+    let activeTab = "regime";
+
+    function switchTab(tab) {
+      activeTab = tab;
+      document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === tab));
+      ["regime", "backtest", "research"].forEach(name =>
+        document.getElementById("tab-" + name).classList.toggle("hidden", name !== tab));
+      document.getElementById("cost-wrap").style.display = tab === "backtest" ? "" : "none";
+      // The research tab has its own input, so hide the price-data controls there.
+      document.getElementById("main-controls").style.display = tab === "research" ? "none" : "";
+    }
+
+    async function ask() {
+      const q = document.getElementById("question").value.trim();
+      if (!q) return;
+      const symbol = document.getElementById("symbol").value.trim() || "SPY";
+      const ans = document.getElementById("answer");
+      ans.textContent = "Thinking …";
+      try {
+        const res = await fetch("/api/ask", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: q, symbol, source: "synthetic" }),
+        });
+        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || `HTTP ${res.status}`); }
+        const d = await res.json();
+        ans.textContent = d.answer;
+        document.getElementById("sources").innerHTML =
+          d.sources.map(s => `<div style="margin:4px 0;">• <b>${s.title}</b> <span style="opacity:.55">[${s.id}] · ${s.score}</span></div>`).join("") || "No matching sources.";
+        document.getElementById("llm-note").textContent = d.used_llm
+          ? "Answer generated by Claude, grounded in the retrieved sources."
+          : "Offline extractive answer. Set ANTHROPIC_API_KEY for Claude-generated responses.";
+      } catch (e) { ans.textContent = "Error: " + e.message; }
+    }
+
+    function params(source) {
+      const symbol = document.getElementById("symbol").value.trim() || "SPY";
+      const period = document.getElementById("period").value;
+      const n = document.getElementById("nstates").value;
+      const cost = document.getElementById("costbps").value || "1";
+      return { symbol, period, n, cost, source };
+    }
+
+    async function run(source) {
+      const status = document.getElementById("status");
+      const p = params(source);
+      status.textContent = `Loading ${source === "synthetic" ? "synthetic demo" : p.symbol} …`;
+      try {
+        if (activeTab === "regime") await runRegime(p);
+        else await runBacktest(p);
+        status.textContent = `${source === "synthetic" ? "Synthetic demo" : p.symbol} · ${activeTab}`;
+      } catch (e) {
+        status.textContent = `Error: ${e.message}`;
+      }
+    }
+
+    async function fetchJSON(url) {
+      const res = await fetch(url);
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || `HTTP ${res.status}`); }
+      return res.json();
+    }
+
+    async function runRegime(p) {
+      const data = await fetchJSON(`/api/regime?symbol=${encodeURIComponent(p.symbol)}&period=${p.period}&n_states=${p.n}&source=${p.source}`);
+      const cur = data.current;
+      const lbl = document.getElementById("current-label");
+      lbl.textContent = cur.label; lbl.className = "current-label " + cur.label;
+      document.getElementById("current-meta").textContent = `${(cur.confidence * 100).toFixed(1)}% confidence · ${cur.date}`;
+
+      const tbody = document.querySelector("#stats tbody"); tbody.innerHTML = "";
+      Object.entries(data.regime_stats).forEach(([label, s]) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td><span class="badge bg-${label}">${label}</span></td>
+          <td class="num">${(s.share * 100).toFixed(0)}%</td>
+          <td class="num">${s.avg_return >= 0 ? "+" : ""}${s.avg_return}%</td>
+          <td class="num">${s.avg_vol}% vol</td>`;
+        tbody.appendChild(tr);
+      });
+
+      const dates = data.series.map(d => d.date), closes = data.series.map(d => d.close);
+      const baseline = { x: dates, y: closes, type: "scatter", mode: "lines",
+        line: { color: "rgba(139,151,168,0.35)", width: 1 }, hoverinfo: "skip", showlegend: false };
+      const byLabel = {};
+      data.series.forEach(d => { (byLabel[d.label] ||= { x: [], y: [], text: [] });
+        byLabel[d.label].x.push(d.date); byLabel[d.label].y.push(d.close);
+        byLabel[d.label].text.push(`${d.label} · ${(d.confidence * 100).toFixed(0)}%`); });
+      const traces = [baseline].concat(Object.entries(byLabel).map(([label, pts]) => ({
+        x: pts.x, y: pts.y, text: pts.text, name: label, type: "scatter", mode: "markers",
+        marker: { size: 5, color: COLORS[label] || "#888" },
+        hovertemplate: "%{x}<br>%{y:.2f}<br>%{text}<extra></extra>" })));
+      Plotly.newPlot("regime-chart", traces, plotLayout("Price"), { responsive: true, displayModeBar: false });
+    }
+
+    async function runBacktest(p) {
+      const data = await fetchJSON(`/api/backtest?symbol=${encodeURIComponent(p.symbol)}&period=${p.period}&n_states=${p.n}&source=${p.source}&cost_bps=${p.cost}`);
+      const order = ["total_return", "cagr", "sharpe", "sortino", "ann_volatility", "max_drawdown", "alpha", "beta"];
+      const pct = new Set(["total_return", "cagr", "ann_volatility", "max_drawdown", "alpha"]);
+      const tbody = document.querySelector("#metrics tbody"); tbody.innerHTML = "";
+      order.forEach(k => {
+        const sv = data.strategy[k], bv = data.benchmark[k];
+        const fmt = v => v === undefined ? "—" : (pct.has(k) ? (v * 100).toFixed(1) + "%" : v.toFixed(2));
+        const cls = v => v === undefined ? "" : (v >= 0 ? "pos" : "neg");
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${k.replace(/_/g, " ")}</td>
+          <td class="num ${cls(sv)}">${fmt(sv)}</td><td class="num ${cls(bv)}">${fmt(bv)}</td>`;
+        tbody.appendChild(tr);
+      });
+      const dates = data.equity_curve.map(d => d.date);
+      const traces = [
+        { x: dates, y: data.equity_curve.map(d => d.strategy), name: "Regime-aware", type: "scatter", mode: "lines", line: { color: "#5b8def", width: 2 } },
+        { x: dates, y: data.equity_curve.map(d => d.benchmark), name: "Buy & Hold", type: "scatter", mode: "lines", line: { color: "#8b97a8", width: 1.5, dash: "dot" } },
+      ];
+      Plotly.newPlot("equity-chart", traces, plotLayout("Growth of $1"), { responsive: true, displayModeBar: false });
+    }
+
+    function plotLayout(ytitle) {
+      return { paper_bgcolor: "transparent", plot_bgcolor: "transparent", font: { color: "#e6edf6" },
+        margin: { t: 10, r: 10, b: 40, l: 55 }, legend: { orientation: "h", y: 1.08 },
+        xaxis: { gridcolor: "#1e2838" }, yaxis: { gridcolor: "#1e2838", title: ytitle } };
+    }
+
+    switchTab("regime");
+    run("synthetic");  // never show a blank page
+  </script>
+</body>
+</html>

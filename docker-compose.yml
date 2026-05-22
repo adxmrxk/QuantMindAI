@@ -1,0 +1,20 @@
+# QuantMind API + dashboard. Run with:  docker compose up --build
+# Then open http://localhost:8000
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      # Set these to enable Claude-generated copilot answers:
+      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - QUANTMIND_MLFLOW=0
+    restart: unless-stopped
+
+  # Reserved for future phases (streaming, caching, vector DB). Uncomment as needed.
+  # redis:
+  #   image: redis:7-alpine
+  #   ports: ["6379:6379"]
+  # qdrant:
+  #   image: qdrant/qdrant:latest
+  #   ports: ["6333:6333"]
