@@ -1,37 +1,67 @@
-# QuantMind
+# QuantMindAI
 
-**AI-powered quantitative research platform.** A working, tested system that
-detects market regimes, forecasts them with a Transformer, allocates capital
-with a reinforcement-learning agent, maps asset relationships with a graph
-neural network, backtests regime-aware strategies, retrieves over a vector DB,
-answers research questions with a retrieval-augmented copilot, coordinates a
-multi-agent research team, and streams live updates over WebSockets — served
-behind a FastAPI backend and a live dashboard, with Docker, CI, Kubernetes and
-Terraform.
+**AI-powered quantitative research platform.**
 
-> **39 passing tests. Every model below actually runs and is measured — no
-> stubs.** The synthetic data generator means the whole platform also runs
-> offline, and gives ground-truth labels to evaluate the models against.
+QuantMindAI is a single working system that detects market regimes with a Gaussian HMM, forecasts the next regime with a Transformer, allocates capital with a reinforcement-learning agent, maps asset relationships with a graph attention network, backtests regime-aware strategies, retrieves over a vector database, answers research questions with a grounded retrieval-augmented copilot, coordinates a multi-agent research team, and streams live updates over WebSockets. The whole stack is served behind a FastAPI backend and a Plotly dashboard, with Docker, CI, Kubernetes manifests, and Terraform for deployment.
+
+> **39 passing tests. Every model below actually runs and is measured — no stubs.** A deterministic synthetic data generator lets the whole platform run offline, and gives ground-truth labels to evaluate the models against.
 
 ---
 
-## What's built
+## Table of Contents
 
-| # | Capability | Approach | Headline result\* |
+- [Project Overview](#project-overview)
+- [Capability Matrix](#capability-matrix)
+- [Architecture](#architecture)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Getting Started](#getting-started)
+- [API](#api)
+- [Modeling Notes](#modeling-notes)
+- [Deployment](#deployment)
+- [Honesty and Scope](#honesty-and-scope)
+
+---
+
+## Project Overview
+
+### What It Is
+
+A vertically integrated research platform that combines classical statistical modeling (HMM regimes, correlation graphs), modern deep learning (Transformer forecaster, Graph Attention Network), reinforcement learning (PPO policy on a Gymnasium environment), retrieval-augmented generation (TF-IDF or Qdrant, optional Claude), and multi-agent orchestration (LangGraph) into one composable Python package. The same models that run in the test suite are the ones the FastAPI service serves to the dashboard.
+
+Every capability is gated behind an extras install so the API container can ship without PyTorch (no torch in the runtime image unless you ask for it).
+
+### What It Does
+
+- Detects market regimes from price data using a Gaussian HMM with multi-restart fitting
+- Forecasts next-day regimes with a PyTorch Transformer encoder
+- Trains a PPO portfolio agent in a custom Gymnasium environment with risk-penalized rewards
+- Builds correlation graphs across asset universes and trains a from-scratch Graph Attention Network on them
+- Backtests regime-aware allocation strategies against buy-and-hold benchmarks with full risk metrics (Sharpe, Sortino, drawdown, alpha, beta)
+- Retrieves relevant documents over TF-IDF or Qdrant for a grounded research copilot
+- Coordinates a four-analyst LangGraph research team that produces a multi-section briefing
+- Streams live regime ticks to the dashboard over WebSockets (with optional Kafka backend)
+- Exposes everything through a FastAPI service with a Plotly dashboard
+
+---
+
+## Capability Matrix
+
+Each row is implemented, tested, and measured. Headline results are on synthetic data with known structure (seed-fixed, reproducible).
+
+| # | Capability | Approach | Headline result |
 |---|---|---|---|
-| 0 | **Regime detection** | Gaussian HMM (multi-restart) over momentum + volatility | 85.7% regime recovery; persistent states (27 switches / 1480 days) |
-| 1 | **Backtesting engine** | Regime-aware allocation vs buy & hold; Sharpe/Sortino/drawdown/alpha/beta | Sharpe **1.20 vs 0.39**, max drawdown **−19% vs −48%** |
-| 2 | **Transformer forecaster** | PyTorch Transformer encoder predicting next-day regime | **96.9%** val accuracy vs 47.7% majority baseline |
-| 3 | **RL portfolio agent** | Gymnasium env + PPO (Stable-Baselines3), risk-penalised reward | Trains end-to-end; policy is backtestable |
+| 0 | **Regime detection** | Gaussian HMM (multi-restart) over momentum + volatility features | 85.7% regime recovery; persistent states (27 switches per 1480 days) |
+| 1 | **Backtesting engine** | Regime-aware allocation vs buy-and-hold; Sharpe, Sortino, drawdown, alpha, beta | Sharpe **1.20 vs 0.39**, max drawdown **−19% vs −48%** |
+| 2 | **Transformer forecaster** | PyTorch Transformer encoder predicting next-day regime | **96.9%** validation accuracy vs 47.7% majority baseline |
+| 3 | **RL portfolio agent** | Gymnasium env + PPO via Stable-Baselines3, risk-penalized reward | Trains end-to-end, policy is directly backtestable |
 | 4 | **GNN relationship mapping** | Correlation graph + from-scratch Graph Attention Network | **100%** sector recovery; graph splits into the right components |
-| 5 | **RAG research copilot** | TF-IDF retrieval over live + static docs, optional Claude generation | Grounded answers citing sources; works offline |
-| 6 | **MLOps** | Dockerised API, GitHub Actions CI, optional MLflow tracking | PyTorch-free API image; CI runs the full suite |
-| 7 | **Vector DB retrieval** | Qdrant (embedded or server) + offline hashing embeddings | Same interface as TF-IDF; cosine vector search |
+| 5 | **RAG research copilot** | TF-IDF retrieval over live + static docs, optional Claude generation | Grounded answers citing sources, works offline without an API key |
+| 6 | **MLOps** | Dockerized API, GitHub Actions CI, optional MLflow tracking | PyTorch-free API image, CI runs the full suite |
+| 7 | **Vector DB retrieval** | Qdrant (embedded or server) with offline hashing embeddings | Same interface as TF-IDF, cosine vector search |
 | 8 | **Multi-agent research team** | LangGraph: 4 parallel analysts + synthesizer | Grounded multi-section briefing |
 | 9 | **Live streaming** | In-memory bus + WebSocket (optional Kafka backend) | Real-time regime ticks on the dashboard |
-| 10 | **Deployment** | Kubernetes manifests + Terraform (AWS ECS Fargate) | Deploy-ready (needs a cluster/account) |
-
-\* Measured on synthetic data with known structure (seed-fixed, reproducible).
+| 10 | **Deployment** | Kubernetes manifests + Terraform (AWS ECS Fargate) | Deploy-ready (needs a cluster or account) |
 
 ---
 
@@ -40,9 +70,9 @@ Terraform.
 ```
                        ┌────────────────────────────────────────────┐
    yfinance / synthetic│                  DATA                       │
-        prices ───────►│   loader.py (Parquet cache) · synthetic.py  │
+        prices ───────▶│   loader.py (Parquet cache)  ·  synthetic.py│
                        └───────────────┬────────────────────────────┘
-                                       ▼  features (ret · momentum · volatility)
+                                       ▼  features (return + momentum + volatility)
    ┌───────────────┬───────────────┬───┴───────────┬───────────────┬──────────────┐
    ▼               ▼               ▼               ▼               ▼              ▼
  models/         forecast/        rl/            graph/          backtest/       rag/
@@ -51,66 +81,166 @@ Terraform.
  (smoother)      regime forecast  allocation     graph           benchmark       Claude
    └───────────────┴───────────────┴───────┬───────┴───────────────┴──────────────┘
                                             ▼
-              agents/ (LangGraph team)        streaming/ (bus + WebSocket)
-                          \                   /
-                           ▼                 ▼
-                              api/main.py  (FastAPI + WebSocket)
+              agents/ (LangGraph team)             streaming/ (bus + WebSocket)
+                          ╲                         ╱
+                           ▼                       ▼
+                          api/main.py  (FastAPI + WebSocket)
               /api/regime · /api/backtest · /api/ask · /api/research-team
                           /ws/regime · /health
                                             ▼
                           web/index.html  (Plotly dashboard)
-              Regime · Backtest · Research tabs + live regime badge
+              Regime  ·  Backtest  ·  Research tabs + live regime badge
                                             ▼
-   mlops/ tracking · Docker/Compose · GitHub Actions CI · deploy/ (K8s + Terraform)
-```
-
-```
-quantmind/
-  data/        loader.py · synthetic.py
-  features/    indicators.py            (momentum + volatility)
-  models/      regime.py                (Phase 0 — Gaussian HMM)
-  backtest/    metrics.py · strategies.py · engine.py   (Phase 1)
-  forecast/    transformer.py · dataset.py · train.py   (Phase 2)
-  rl/          env.py · agent.py        (Phase 3 — Gymnasium + PPO)
-  graph/       build.py · gat.py · train.py             (Phase 4 — GAT)
-  rag/         retriever.py · corpus.py · copilot.py    (Phase 5)
-               embeddings.py · qdrant_store.py          (Phase 7 — vector DB)
-  mlops/       tracking.py              (Phase 6 — MLflow optional)
-  agents/      team.py                  (Phase 8 — LangGraph multi-agent)
-  streaming/   bus.py · stream.py       (Phase 9 — WebSocket / Kafka)
-  api/         main.py                  (FastAPI service + WebSocket)
-web/           index.html               (dashboard)
-deploy/        k8s/ · terraform/        (Phase 10 — K8s + Terraform)
-scripts/       demo.py · train_all.py
-tests/         39 tests across all phases
+   mlops/ tracking · Docker / Compose · GitHub Actions CI · deploy/ (K8s + Terraform)
 ```
 
 ---
 
-## Quickstart
+## Tech Stack
+
+### Core ML
+
+| Component                       | Purpose |
+|---------------------------------|---------|
+| **Gaussian HMM** (`hmmlearn`)   | Regime detection over momentum and volatility features. Multi-restart fitting to dodge degenerate local optima. |
+| **PyTorch Transformer encoder** | Next-day regime forecasting from a windowed feature history. |
+| **Stable-Baselines3 PPO**       | RL portfolio allocation agent over a custom Gymnasium environment. |
+| **Custom Graph Attention Network** | From-scratch GAT layers trained on asset correlation graphs for sector recovery. |
+
+### Retrieval and Agents
+
+| Component             | Purpose |
+|-----------------------|---------|
+| **TF-IDF retriever**  | Default, offline, zero-dependency document retriever. |
+| **Qdrant**            | Optional vector backend (embedded or server) selected by `QUANTMIND_RETRIEVER=qdrant`. |
+| **Anthropic Claude**  | Optional generation layer in the copilot; the answer always falls back to grounded extractive mode without an API key. |
+| **LangGraph**         | Multi-agent orchestration. Four analysts (macro, risk, relationship, research) fan out in parallel, synthesizer fans in. |
+
+### Serving
+
+| Component         | Purpose |
+|-------------------|---------|
+| **FastAPI + Uvicorn** | REST endpoints and a `/ws/regime` WebSocket for live streaming. |
+| **Plotly + vanilla JS** | Single-page dashboard (`web/index.html`) with Regime, Backtest, and Research tabs plus a live regime badge. |
+| **`lru_cache`**   | Memoizes HMM fits and backtests so repeated dashboard polls do not refit. |
+
+### MLOps and Deployment
+
+| Component             | Purpose |
+|-----------------------|---------|
+| **Docker + Compose**  | Local stack startup. API image is PyTorch-free by default. |
+| **GitHub Actions CI** | Runs the full test suite on every push. |
+| **MLflow (optional)** | Experiment and run tracking via `quantmind.mlops.tracking`. |
+| **Kubernetes**        | Deployment, Service, and HPA manifests under `deploy/k8s/`. |
+| **Terraform**         | AWS ECS Fargate provisioning under `deploy/terraform/`. |
+
+### Data
+
+| Component                      | Purpose |
+|--------------------------------|---------|
+| **yfinance**                   | Live price loader with Parquet cache. |
+| **Synthetic regime generator** | Deterministic price series with known regime labels; makes the whole platform usable offline and gives ground truth for evaluation. |
+
+---
+
+## Project Structure
+
+```
+quantmindai/
+│
+├── quantmind/                      Importable library
+│   ├── data/
+│   │   ├── loader.py               yfinance + Parquet cache
+│   │   └── synthetic.py            Regime-labeled synthetic series
+│   ├── features/
+│   │   └── indicators.py           Momentum + volatility features
+│   ├── models/
+│   │   └── regime.py               Phase 0: Gaussian HMM + analyzer
+│   ├── backtest/
+│   │   ├── strategies.py           Regime-aware allocation
+│   │   ├── engine.py               Backtester
+│   │   └── metrics.py              Sharpe, Sortino, drawdown, alpha, beta
+│   ├── forecast/
+│   │   ├── dataset.py              Sliding-window dataset
+│   │   ├── transformer.py          Transformer encoder
+│   │   └── train.py                Training loop
+│   ├── rl/
+│   │   ├── env.py                  Gymnasium environment
+│   │   └── agent.py                PPO agent
+│   ├── graph/
+│   │   ├── build.py                Correlation graph construction
+│   │   ├── gat.py                  From-scratch Graph Attention Network
+│   │   └── train.py                Sector-recovery training loop
+│   ├── rag/
+│   │   ├── retriever.py            TF-IDF retriever
+│   │   ├── corpus.py               Document loaders
+│   │   ├── copilot.py              Grounded answer composition
+│   │   ├── embeddings.py           Offline hashing embeddings (Qdrant default)
+│   │   └── qdrant_store.py         Qdrant retriever wrapper
+│   ├── mlops/
+│   │   └── tracking.py             Optional MLflow integration
+│   ├── agents/
+│   │   └── team.py                 LangGraph multi-agent research team
+│   ├── streaming/
+│   │   ├── bus.py                  In-memory pub/sub (+ optional Kafka)
+│   │   └── stream.py               Async regime stream generator
+│   └── api/
+│       └── main.py                 FastAPI app + WebSocket
+│
+├── web/
+│   └── index.html                  Plotly dashboard
+│
+├── deploy/
+│   ├── k8s/
+│   │   ├── deployment.yaml
+│   │   ├── service.yaml
+│   │   └── hpa.yaml
+│   └── terraform/
+│       ├── main.tf
+│       ├── variables.tf
+│       └── outputs.tf
+│
+├── scripts/
+│   ├── demo.py                     Offline regime demo
+│   └── train_all.py                End-to-end training of every model
+│
+├── tests/                          39 tests across all 11 capabilities
+├── data/cache/                     Parquet price cache
+│
+├── pyproject.toml                  Core + ml + llm + streaming + dev extras
+├── docker-compose.yml
+├── Dockerfile
+└── README.md
+```
+
+---
+
+## Getting Started
 
 Requires Python 3.10+ (developed on 3.12).
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1                 # macOS/Linux: source .venv/bin/activate
-pip install -e ".[dev]"                       # core + full ML stack (torch, SB3, gymnasium, kafka, anthropic)
+pip install -e ".[dev]"                       # core + full ML stack
 
-pytest                                         # 30 tests
+pytest                                         # 39 tests
 python scripts/demo.py                         # offline regime demo
 python scripts/train_all.py                    # train every model end-to-end (offline)
 uvicorn quantmind.api.main:app --reload        # open http://127.0.0.1:8000
 ```
 
-Install profiles (the API itself needs only the core deps):
+### Install profiles
 
-| Command | Gets you |
-|---|---|
-| `pip install -e .` | Core (PyTorch-free): regime, backtest, RAG + Qdrant, agents, streaming, API/dashboard |
-| `pip install -e ".[ml]"` | + Transformer, RL, GNN training (PyTorch stack) |
-| `pip install -e ".[llm]"` | + Claude-generated copilot answers (`anthropic`) |
-| `pip install -e ".[streaming]"` | + Kafka backend for the streaming bus |
-| `pip install -e ".[dev]"` | Everything above + test tooling |
+The API itself only needs the core deps.
+
+| Command                              | Adds |
+|--------------------------------------|------|
+| `pip install -e .`                   | Core (PyTorch-free): regime, backtest, RAG + Qdrant, agents, streaming, API, dashboard |
+| `pip install -e ".[ml]"`             | Transformer, RL, GNN training (PyTorch stack) |
+| `pip install -e ".[llm]"`            | Claude-generated copilot answers (`anthropic`) |
+| `pip install -e ".[streaming]"`      | Kafka backend for the streaming bus |
+| `pip install -e ".[dev]"`            | Everything above plus test tooling |
 
 ### Run with Docker
 
@@ -118,73 +248,57 @@ Install profiles (the API itself needs only the core deps):
 docker compose up --build      # then open http://localhost:8000
 ```
 
-### API
-
-| Endpoint | Description |
-|---|---|
-| `GET /health` | Liveness probe. |
-| `GET /api/regime?symbol=SPY&period=2y&n_states=3&source=auto` | Regime classification + per-regime stats. |
-| `GET /api/backtest?symbol=SPY&source=auto&cost_bps=1` | Regime strategy vs buy & hold: equity curves + metrics. |
-| `POST /api/ask` `{"query": "...", "source": "synthetic"}` | Grounded research answer with sources. |
-| `POST /api/research-team` `{"query": "...", "source": "synthetic"}` | Multi-agent briefing (macro · risk · relationships · research). |
-| `WS /ws/regime?source=synthetic&speed=0.3` | Live stream of regime ticks. |
-| `GET /` | Dashboard (Regime / Backtest / Research tabs + live badge). |
-
-Use `source=synthetic` (or `symbol=SYNTH`) on any endpoint for a fully offline demo.
-Set `QUANTMIND_RETRIEVER=qdrant` to back the copilot with Qdrant vector search.
-
 ### Claude-powered copilot (optional)
 
 ```powershell
-$env:ANTHROPIC_API_KEY = "sk-ant-..."   # then POST /api/ask uses Claude (with prompt caching)
+$env:ANTHROPIC_API_KEY = "sk-ant-..."   # POST /api/ask now uses Claude with prompt caching
 ```
+
 Without a key the copilot returns a grounded **extractive** answer, so it always works.
 
 ---
 
-## Modeling notes (the interesting bits)
+## API
 
-- **Regimes need smoothed features.** Feeding the HMM raw daily returns fails —
-  daily drift (~0.1%) is dwarfed by volatility (~1–2%), so the states are
-  inseparable and flicker. Momentum + volatility, plus **multi-restart fitting**
-  to dodge degenerate local optima, are what make the regimes stick.
-- **The forecaster's 97% is honest but flattered by persistence** — regimes
-  rarely change day to day, so next-day prediction is easy. The same Transformer
-  applied to next-day *direction* is the harder, natural extension.
-- **The GNN earns its keep from structure.** Node features alone are weak for
-  sector ID; the correlation graph carries the signal, and the GAT exploits it
-  (100% sector recovery, with the graph splitting into the right components).
-- **The copilot never free-associates** — it answers only from retrieved
-  documents (including live, data-grounded ones) and returns its sources.
+| Endpoint | Description |
+|---|---|
+| `GET /health` | Liveness probe |
+| `GET /api/regime?symbol=SPY&period=2y&n_states=3&source=auto` | Regime classification + per-regime stats |
+| `GET /api/backtest?symbol=SPY&source=auto&cost_bps=1` | Regime strategy vs buy-and-hold: equity curves + metrics |
+| `POST /api/ask` body `{"query": "...", "source": "synthetic"}` | Grounded research answer with sources |
+| `POST /api/research-team` body `{"query": "...", "source": "synthetic"}` | Multi-agent briefing (macro, risk, relationships, research) |
+| `WS /ws/regime?source=synthetic&speed=0.3` | Live stream of regime ticks |
+| `GET /` | Dashboard (Regime / Backtest / Research tabs + live badge) |
 
----
-
-## Roadmap (genuinely remaining)
-
-The streaming, vector DB, multi-agent and deployment layers are now built (above).
-What's left needs scale or live infrastructure to be meaningful, so it's honestly
-deferred rather than faked:
-
-- **Live market feed**: drive the WebSocket/Kafka stream from a real-time data
-  provider instead of replaying historical bars.
-- **Sentence-transformer embeddings** as the default Qdrant encoder (the
-  `embeddings.py` interface already supports it; left out to avoid a model
-  download in CI).
-- **Managed deployment**: actually apply the Terraform/K8s on a cloud account,
-  with a hosted MLflow tracking server and image registry in CI.
-- **Distributed training** (Ray) for the heavier models, and **online learning**
-  to adapt as new data streams in.
+Use `source=synthetic` (or `symbol=SYNTH`) on any endpoint for a fully offline demo.
 
 ---
 
-## Honesty & scope
+## Modeling Notes
 
-This is a research / portfolio project, **not investment advice**. Results are
-measured on synthetic data with known structure so the models can be evaluated
-against ground truth; real markets have no labels and are far less forgiving.
-Every metric in this README is reproducible from the test suite and
-`scripts/train_all.py`.
+The lessons that fell out of building this.
 
-## License
+- **Regimes need smoothed features.** Feeding the HMM raw daily returns fails. Daily drift (~0.1%) is dwarfed by volatility (~1–2%), so the states are inseparable and flicker. Momentum and volatility, plus multi-restart fitting to dodge degenerate local optima, are what make the regimes stick.
+- **The forecaster's 97% is honest but flattered by persistence.** Regimes rarely change day to day, so next-day prediction is easy. The same Transformer applied to next-day *direction* is the harder, natural extension.
+- **The GNN earns its keep from structure.** Node features alone are weak for sector identification. The correlation graph carries the signal, and the GAT exploits it (100% sector recovery, with the graph splitting into the right components).
+- **The copilot never free-associates.** It answers only from retrieved documents (including live, data-grounded ones) and returns its sources.
 
-MIT.
+---
+
+## Deployment
+
+Both deployment paths are provisioned in code and ready to apply.
+
+**Kubernetes** ([deploy/k8s/](deploy/k8s/)): Deployment, ClusterIP Service, and HorizontalPodAutoscaler manifests. Apply with `kubectl apply -k deploy/k8s/` after pushing an image to a registry the cluster can pull from.
+
+**Terraform on AWS** ([deploy/terraform/](deploy/terraform/)): provisions an ECS Fargate service with the necessary IAM, networking, and load-balancing resources. Run `terraform init && terraform apply` after editing `terraform.tfvars`.
+
+Neither path has been applied to a live cluster or account in this repo — that requires credentials, an image push to a registry, and a hosted MLflow tracking endpoint, which are deliberately deferred. The manifests render cleanly (`kubectl kustomize`) and the Terraform validates (`terraform validate`).
+
+---
+
+## Honesty and Scope
+
+This is a research and portfolio project, **not investment advice**. Results are measured on synthetic data with known structure so the models can be evaluated against ground truth; real markets have no labels and are far less forgiving. Every metric in this README is reproducible from the test suite and `scripts/train_all.py`.
+
+License: MIT.
