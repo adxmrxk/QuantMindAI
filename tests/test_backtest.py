@@ -1,7 +1,13 @@
 import numpy as np
 import pandas as pd
 
-from quantmind.backtest import BuyAndHold, backtest_regime_strategy, metrics, run_backtest
+from quantmind.backtest import (
+    BuyAndHold,
+    backtest_causal_regime_strategy,
+    backtest_regime_strategy,
+    metrics,
+    run_backtest,
+)
 from quantmind.data import generate_regime_series
 
 
@@ -46,4 +52,14 @@ def test_regime_strategy_sits_out_bear_and_cuts_drawdown():
     # Avoiding the high-volatility bear regime should reduce drawdown.
     assert bt.metrics["max_drawdown"] >= bt.benchmark_metrics["max_drawdown"]
     # All reported metrics are finite numbers.
+    assert all(np.isfinite(v) for v in bt.metrics.values())
+
+
+def test_causal_walk_forward_backtest_has_no_future_observations():
+    close = generate_regime_series(n_days=420, seed=7)["close"]
+    bt, audit = backtest_causal_regime_strategy(
+        close, lookback_days=120, rebalance_days=21, cost_bps=1.0)
+    assert audit["future_observations_used"] == 0
+    assert audit["rebalances"] > 0
+    assert bt.positions.iloc[0] == 0.0
     assert all(np.isfinite(v) for v in bt.metrics.values())

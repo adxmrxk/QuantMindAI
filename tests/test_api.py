@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+import pytest
 
 from quantmind.api.main import app
 
@@ -63,4 +64,46 @@ def test_research_team_endpoint_offline(monkeypatch):
 def test_dashboard_served():
     res = client.get("/")
     assert res.status_code == 200
-    assert "QuantMind" in res.text
+    assert 'id="root"' in res.text
+    assert "/assets/" in res.text
+    assert "function switchTab" not in res.text
+
+
+def test_portfolio_diagnostic_endpoint_offline():
+    res = client.post("/api/portfolio/diagnose", json={
+        "source": "synthetic",
+        "holdings": [{"symbol": "SPY", "weight": 0.8}, {"symbol": "TLT", "weight": 0.2}],
+    })
+    assert res.status_code == 200
+    data = res.json()
+    assert data["summary"]["effective_holdings"] < 2
+    assert any(flag["code"] == "single_holding_concentration" for flag in data["flags"])
+
+
+def test_portfolio_resilience_endpoint_offline():
+    res = client.post("/api/portfolio/resilience", json={
+        "source": "synthetic", "simulations": 256, "horizon_days": 20,
+        "holdings": [{"symbol": "SPY", "weight": 0.8}, {"symbol": "TLT", "weight": 0.2}],
+    })
+    assert res.status_code == 200
+    data = res.json()
+    assert data["simulation"]["simulations"] == 256
+    assert len(data["current_allocation"]["risk_attribution"]) == 2
+    assert 0 <= data["current_allocation"]["probability_of_loss"] <= 1
+
+
+def test_forecast_and_relationship_endpoints_offline():
+    forecast = client.get("/api/forecast", params={"source": "synthetic", "epochs": 3})
+    assert forecast.status_code == 200
+    assert sum(forecast.json()["probabilities"].values()) == pytest.approx(1.0, abs=1e-3)
+    graph = client.get("/api/relationships")
+    assert graph.status_code == 200
+    assert graph.json()["graph"]["n_nodes"] > 0
+
+
+def test_rl_sandbox_endpoint_offline():
+    response = client.get("/api/rl-sandbox", params={"source": "synthetic", "timesteps": 256})
+    assert response.status_code == 200
+    data = response.json()
+    assert 0 <= data["average_exposure"] <= 1
+    assert "sharpe" in data["strategy"]

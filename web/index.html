@@ -61,6 +61,7 @@
   <div class="tabs">
     <button class="tab active" data-tab="regime" onclick="switchTab('regime')">Regime Detection</button>
     <button class="tab" data-tab="backtest" onclick="switchTab('backtest')">Backtest</button>
+    <button class="tab" data-tab="portfolio" onclick="switchTab('portfolio')">Portfolio Checkup</button>
     <button class="tab" data-tab="research" onclick="switchTab('research')">Research Copilot</button>
   </div>
 
@@ -102,6 +103,7 @@
     <div>
       <div class="panel">
         <h2>Strategy vs Benchmark</h2>
+        <div id="backtest-audit" class="current-meta" style="margin-bottom:8px;"></div>
         <table id="metrics">
           <thead><tr><th>Metric</th><th class="num">Regime</th><th class="num">Buy&amp;Hold</th></tr></thead>
           <tbody></tbody>
@@ -109,6 +111,28 @@
       </div>
     </div>
     <div class="panel"><div id="equity-chart" class="chart"></div></div>
+  </div>
+
+  <!-- Research tab -->
+  <div id="tab-portfolio" class="layout hidden">
+    <div class="panel">
+      <h2>Portfolio inputs</h2>
+      <label class="inline">Holdings as <code>TICKER:weight</code></label>
+      <input id="holdings" value="SPY:60, TLT:40" style="width:100%; margin:8px 0 12px;" />
+      <button class="primary" onclick="diagnosePortfolio('auto')">Check live history</button>
+      <button onclick="diagnosePortfolio('synthetic')">Demo portfolio</button>
+      <button onclick="runResilience('synthetic')">Run resilience lab</button>
+      <p class="current-meta">Historical concentration and drawdown diagnostics only. Not investment advice.</p>
+    </div>
+    <div class="panel">
+      <h2>Portfolio health</h2>
+      <div id="portfolio-summary" class="current-meta">Run a checkup to see portfolio-level risks.</div>
+      <div id="portfolio-flags" style="margin-top:14px;"></div>
+    </div>
+    <div class="panel" style="grid-column:1 / -1;">
+      <h2>Resilience lab</h2>
+      <div id="resilience-summary" class="current-meta">Run the resilience lab to see risk attribution, a 20-day downside distribution, and an equal-weight counterfactual.</div>
+    </div>
   </div>
 
   <!-- Research tab -->
@@ -137,11 +161,79 @@
     function switchTab(tab) {
       activeTab = tab;
       document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === tab));
-      ["regime", "backtest", "research"].forEach(name =>
+      ["regime", "backtest", "portfolio", "research"].forEach(name =>
         document.getElementById("tab-" + name).classList.toggle("hidden", name !== tab));
       document.getElementById("cost-wrap").style.display = tab === "backtest" ? "" : "none";
       // The research tab has its own input, so hide the price-data controls there.
-      document.getElementById("main-controls").style.display = tab === "research" ? "none" : "";
+      document.getElementById("main-controls").style.display = ["research", "portfolio"].includes(tab) ? "none" : "";
+    }
+
+    function portfolioHoldings() {
+      return document.getElementById("holdings").value.split(",").map(part => {
+        const [symbol, weight] = part.trim().split(":");
+        return { symbol, weight: Number(weight) };
+      });
+    }
+
+    async function diagnosePortfolio(source) {
+      const status = document.getElementById("status");
+      try {
+        const holdings = portfolioHoldings();
+        status.textContent = "Calculating portfolio diagnostics …";
+        const res = await fetch("/api/portfolio/diagnose", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ holdings, source }),
+        });
+        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || `HTTP ${res.status}`); }
+        const data = await res.json(), s = data.summary;
+        document.getElementById("portfolio-summary").innerHTML = `
+          <div class="current-label">${s.diversification_score}/100</div>
+          <div class="current-meta">Diversification score from ${data.observations} historical daily observations</div>
+          <table style="margin-top:12px;"><tbody>
+            <tr><td>Top holding</td><td class="num">${(s.top_holding_weight * 100).toFixed(0)}%</td></tr>
+            <tr><td>Effective holdings</td><td class="num">${s.effective_holdings}</td></tr>
+            <tr><td>Average correlation</td><td class="num">${s.average_pairwise_correlation}</td></tr>
+            <tr><td>Historical max drawdown</td><td class="num">${(s.max_drawdown * 100).toFixed(1)}%</td></tr>
+            <tr><td>Historical 95% daily VaR</td><td class="num">${(s.historical_var_95_daily * 100).toFixed(2)}%</td></tr>
+          </tbody></table>`;
+        document.getElementById("portfolio-flags").innerHTML = data.flags.map(f =>
+          `<div class="panel" style="padding:10px; margin-top:8px; border-color:${f.level === "high" ? "#e74c3c" : "#243047"}"><b>${f.code.replace(/_/g, " ")}</b><br><span class="current-meta">${f.message}</span></div>`
+        ).join("");
+        status.textContent = `${source === "synthetic" ? "Synthetic" : "Live"} portfolio diagnostic complete`;
+      } catch (e) { status.textContent = "Portfolio error: " + e.message; }
+    }
+
+    async function runResilience(source) {
+      const status = document.getElementById("status");
+      const target = document.getElementById("resilience-summary");
+      target.textContent = "Simulating 2,000 historical 20-day paths and calculating risk attribution …";
+      try {
+        const res = await fetch("/api/portfolio/resilience", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ holdings: portfolioHoldings(), source, simulations: 2000, horizon_days: 20 }),
+        });
+        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || `HTTP ${res.status}`); }
+        const d = await res.json(), c = d.current_allocation, e = d.equal_weight_counterfactual;
+        const rows = c.risk_attribution.map(item =>
+          `<tr><td>${item.symbol}</td><td class="num">${(item.weight * 100).toFixed(1)}%</td><td class="num">${(item.risk_contribution * 100).toFixed(1)}%</td></tr>`
+        ).join("");
+        const improvement = d.comparison.annualized_volatility_change;
+        target.innerHTML = `
+          <div class="current-label">${(c.p05_horizon_return * 100).toFixed(1)}%</div>
+          <div class="current-meta">5th-percentile ${d.simulation.horizon_days}-day outcome from ${d.simulation.simulations.toLocaleString()} reproducible moving-block simulations</div>
+          <table style="margin-top:12px;"><thead><tr><th>Holding</th><th class="num">Weight</th><th class="num">Risk contribution</th></tr></thead><tbody>${rows}</tbody></table>
+          <table style="margin-top:12px;"><tbody>
+            <tr><td>Chance of a negative ${d.simulation.horizon_days}-day outcome</td><td class="num">${(c.probability_of_loss * 100).toFixed(1)}%</td></tr>
+            <tr><td>Expected shortfall beyond the 5th percentile</td><td class="num">${(c.cvar_95_horizon_return * 100).toFixed(1)}%</td></tr>
+            <tr><td>Equal-weight volatility change</td><td class="num">${improvement >= 0 ? "+" : ""}${(improvement * 100).toFixed(1)} pts</td></tr>
+            <tr><td>Equal-weight 5th-percentile outcome</td><td class="num">${(e.p05_horizon_return * 100).toFixed(1)}%</td></tr>
+          </tbody></table>
+          <p class="current-meta" style="margin-top:12px;">${d.simulation.method}. Equal weight is a transparent comparison, not a recommendation.</p>`;
+        status.textContent = "Portfolio resilience lab complete";
+      } catch (e) {
+        target.textContent = "Resilience lab error: " + e.message;
+        status.textContent = "Portfolio resilience lab failed";
+      }
     }
 
     async function ask() {
@@ -257,6 +349,10 @@
           <td class="num ${cls(sv)}">${fmt(sv)}</td><td class="num ${cls(bv)}">${fmt(bv)}</td>`;
         tbody.appendChild(tr);
       });
+      const audit = data.audit || {};
+      document.getElementById("backtest-audit").textContent = audit.mode === "causal_walk_forward"
+        ? `Causal walk-forward: ${audit.rebalances} rebalances, ${audit.future_observations_used} future observations used.`
+        : "Full-history research view: do not treat as a deployable strategy test.";
       const dates = data.equity_curve.map(d => d.date);
       const traces = [
         { x: dates, y: data.equity_curve.map(d => d.strategy), name: "Regime-aware", type: "scatter", mode: "lines", line: { color: "#5b8def", width: 2 } },

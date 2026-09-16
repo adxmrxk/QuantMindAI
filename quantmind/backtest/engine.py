@@ -78,3 +78,56 @@ def backtest_regime_strategy(
     positions = RegimeStrategy(exposures).positions(regime.frame)
     result = run_backtest(regime.frame["close"], positions, cost_bps=cost_bps)
     return result, regime
+
+
+def backtest_causal_regime_strategy(
+    close: pd.Series,
+    n_states: int = 3,
+    exposures: dict[str, float] | None = None,
+    cost_bps: float = 1.0,
+    lookback_days: int = 252,
+    rebalance_days: int = 21,
+):
+    """Backtest a regime strategy without fitting on future observations.
+
+    The original research helper labels one complete history at once, which is
+    useful for visualising regimes but not a credible historical decision
+    simulation. This walk-forward variant refits the HMM at each rebalance on
+    a trailing window ending on that date, then holds the resulting exposure
+    until the next rebalance. ``run_backtest`` applies it one day later.
+    """
+    close = pd.Series(close, dtype="float64").dropna()
+    if lookback_days < 80 or rebalance_days < 1:
+        raise ValueError("lookback_days must be at least 80 and rebalance_days positive")
+    if len(close) <= lookback_days:
+        raise ValueError("not enough price history for causal walk-forward backtest")
+
+    positions = pd.Series(0.0, index=close.index, name="position")
+    strategy = RegimeStrategy(exposures)
+    rebalance_count = 0
+    current_target = 0.0
+    for end in range(lookback_days, len(close), rebalance_days):
+        history = close.iloc[max(0, end - lookback_days): end + 1]
+        # Use fewer restarts/iterations than the analytical full-history path:
+        # the point is a realistic periodic decision, not an expensive search.
+        from quantmind.models.regime import RegimeModel
+        from quantmind.features import FEATURE_COLUMNS, compute_features
+
+        features = compute_features(history)
+        model = RegimeModel(n_states=n_states, n_iter=75, n_init=2).fit(
+            features[FEATURE_COLUMNS].to_numpy())
+        state = int(model.predict(features[FEATURE_COLUMNS].to_numpy())[-1])
+        current_target = float(strategy.exposures[model.state_labels()[state]])
+        next_end = min(end + rebalance_days, len(close))
+        positions.iloc[end:next_end] = current_target
+        rebalance_count += 1
+
+    result = run_backtest(close, positions, cost_bps=cost_bps)
+    metadata = {
+        "mode": "causal_walk_forward",
+        "lookback_days": lookback_days,
+        "rebalance_days": rebalance_days,
+        "rebalances": rebalance_count,
+        "future_observations_used": 0,
+    }
+    return result, metadata

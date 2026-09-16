@@ -35,5 +35,7 @@ role, and CloudWatch logs — using the account's default VPC.
 
 ## Local full stack (no cloud)
 
-`docker compose up --build` from the repo root brings up the API + Qdrant +
-Kafka locally. See the root `docker-compose.yml`.
+`docker compose up --build` from the repo root brings up the API and Qdrant
+locally. The application uses embedded Qdrant by default, so the external
+Qdrant container is available for a production-like local environment rather
+than being required by the dashboard. See the root `docker-compose.yml`.
