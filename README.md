@@ -8,7 +8,8 @@ historical questions before acting: Is one holding dominating the portfolio?
 Are the assets actually diversified? What have correlation, drawdown, and daily
 loss risk looked like? It is a research tool, not investment advice.
 
-The product is a local FastAPI backend with a React, Vite, and Plotly dashboard.
+The product is a local FastAPI backend with a React, Vite, Tailwind CSS, and
+Plotly dashboard.
 It runs with synthetic data for a fully reproducible demo, or with
 historical market data from yfinance. The dashboard includes regime detection,
 a causal walk-forward backtest, a portfolio checkup, grounded research, and a
